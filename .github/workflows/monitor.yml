@@ -2,9 +2,8 @@ name: Monitoramento Semanal Leilões RF
 
 on:
   schedule:
-    # Executa todo sábado às 09:00 UTC (06:00 Horário de Brasília)
     - cron: '0 9 * * 6'
-  workflow_dispatch: # Permite execução manual a qualquer momento via painel do GitHub
+  workflow_dispatch:
 
 jobs:
   run-agent:
@@ -12,7 +11,7 @@ jobs:
 
     steps:
       - name: Checkout do código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configurar Python
         uses: actions/setup-python@v5
