@@ -1,12 +1,12 @@
 import os
 import time
 import re
-import subprocess
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from bs4 import BeautifulSoup
 import undetected_chromedriver as uc
+from webdriver_manager.chrome import ChromeDriverManager
 
 # ==============================================================================
 # CONFIGURAÇÕES E VARIÁVEIS DE AMBIENTE
@@ -23,21 +23,8 @@ PALAVRAS_CHAVE = [
 URL_EDITAIS = "https://www25.receita.fazenda.gov.br/sle-sociedade/portal/editais-disponiveis"
 
 # ==============================================================================
-# DETECÇÃO DE VERSÃO E INICIALIZAÇÃO DO DRIVER
+# INICIALIZAÇÃO DO DRIVER COM UN DETECTED-CHROMEDRIVER + WEBDRIVER-MANAGER
 # ==============================================================================
-def obter_versao_chrome():
-    """Identifica a versão major do Google Chrome instalado no sistema via subprocess."""
-    try:
-        out = subprocess.check_output(["google-chrome", "--version"]).decode("utf-8")
-        match = re.search(r"Google Chrome (\d+)\.", out)
-        if match:
-            versao_major = int(match.group(1))
-            print(f"[-] Versão do Google Chrome detectada no sistema: {versao_major}")
-            return versao_major
-    except Exception as e:
-        print(f"[!] Não foi possível detectar a versão via subprocess: {e}")
-    return None
-
 def inicializar_driver():
     options = uc.ChromeOptions()
     options.add_argument("--headless=new")
@@ -45,14 +32,11 @@ def inicializar_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
     
-    versao_chrome = obter_versao_chrome()
+    # O ChromeDriverManager baixa e alinha o binário do ChromeDriver na versão exata do Chrome instalado
+    driver_path = ChromeDriverManager().install()
+    print(f"[-] ChromeDriver alinhado via webdriver-manager em: {driver_path}")
     
-    # Força o undetected-chromedriver a usar a mesma versão major do browser
-    if versao_chrome:
-        driver = uc.Chrome(options=options, version_main=versao_chrome)
-    else:
-        driver = uc.Chrome(options=options)
-        
+    driver = uc.Chrome(options=options, driver_executable_path=driver_path)
     return driver
 
 def contem_palavras_chave(texto):
@@ -60,11 +44,11 @@ def contem_palavras_chave(texto):
     return any(re.search(p, texto_lower) for p in PALAVRAS_CHAVE)
 
 # ==============================================================================
-# ENVIO DE E-MAIL
+# ENVIO DE E-MAIL DE ALERTA
 # ==============================================================================
 def enviar_email_alerta(itens_encontrados):
     if not (EMAIL_ORIGEM and SENHA_APP and EMAIL_DESTINO):
-        print("[!] ATENÇÃO: Variáveis de e-mail não configuradas. Notificação ignorada.")
+        print("[!] ATENÇÃO: Variáveis de e-mail não configuradas no ambiente. Notificação não enviada.")
         return
 
     try:
@@ -73,11 +57,11 @@ def enviar_email_alerta(itens_encontrados):
         mensagem["To"] = EMAIL_DESTINO
         mensagem["Subject"] = f"Alerta Leilão RF: {len(itens_encontrados)} lote(s) encontrado(s)"
 
-        corpo = f"Foram encontrados {len(itens_encontrados)} lote(s)/item(ns) de interesse na Receita Federal:\n\n"
+        corpo = f"Foram encontrados {len(itens_encontrados)} lote(s)/item(ns) de interesse no portal da Receita Federal:\n\n"
         for idx, item in enumerate(itens_encontrados, 1):
             corpo += f"--- Lote/Item {idx} ---\n{item}\n\n"
         
-        corpo += f"\nAcesse o portal: {URL_EDITAIS}"
+        corpo += f"\nAcesse o portal diretamente em: {URL_EDITAIS}"
         mensagem.attach(MIMEText(corpo, "plain"))
 
         server = smtplib.SMTP("smtp.gmail.com", 587)
@@ -85,7 +69,7 @@ def enviar_email_alerta(itens_encontrados):
         server.login(EMAIL_ORIGEM, SENHA_APP)
         server.send_message(mensagem)
         server.quit()
-        print(f"[+] Alerta de e-mail enviado com sucesso para {EMAIL_DESTINO}")
+        print(f"[+] Alerta enviado com sucesso para {EMAIL_DESTINO}")
     except Exception as e:
         print(f"[!] Erro ao enviar e-mail: {e}")
 
@@ -98,6 +82,7 @@ def buscar_itens():
 
     try:
         driver.get(URL_EDITAIS)
+        # Aguarda a renderização das requisições assíncronas (Angular/SPA)
         time.sleep(12)
 
         soup = BeautifulSoup(driver.page_source, 'html.parser')
@@ -119,7 +104,7 @@ def buscar_itens():
             print("[-] Nenhum lote contendo celulares ou TVs foi localizado nesta verificação.")
 
     except Exception as e:
-        print(f"[!] Erro durante o scraping: {e}")
+        print(f"[!] Erro durante a execução do scraping: {e}")
         raise e
     finally:
         driver.quit()
