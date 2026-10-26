@@ -19,7 +19,7 @@ EMAIL_ORIGEM = os.getenv("EMAIL_ORIGEM")
 SENHA_APP = os.getenv("SENHA_APP")
 EMAIL_DESTINO = os.getenv("EMAIL_DESTINO")
 
-# Palavras-chave expandidas para itens de informática e eletrônicos
+# Dicionário de busca focado em equipamentos de TI, informática e eletrônicos
 PALAVRAS_CHAVE = [
     r'\bcelular\b', r'\bsmartphone\b', r'\biphone\b', r'\bsamsung\b', r'\bxiaomi\b',
     r'\btv\b', r'\btelevisao\b', r'\btelevisor\b', r'\bsmart tv\b',
@@ -44,6 +44,7 @@ def inicializar_driver():
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
+    # Burlar detecção padrão de bot
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
@@ -67,11 +68,11 @@ def contem_palavras_chave(texto):
     return any(re.search(p, texto_lower) for p in PALAVRAS_CHAVE)
 
 # ==============================================================================
-# ENVIO DE E-MAIL DE ALERTA
+# ENVIO DE E-MAIL DE ALERTA (USANDO SMTP_SSL NA PORTA 465)
 # ==============================================================================
 def enviar_email_alerta(achados):
     if not (EMAIL_ORIGEM and SENHA_APP and EMAIL_DESTINO):
-        print("[!] ATENÇÃO: Variáveis de e-mail não configuradas. Notificação ignorada.")
+        print("[!] ATENÇÃO: Variáveis EMAIL_ORIGEM, SENHA_APP ou EMAIL_DESTINO não configuradas.")
         return
 
     try:
@@ -94,11 +95,11 @@ def enviar_email_alerta(achados):
         corpo += f"\nAcesse o portal diretamente em: {URL_EDITAIS}"
         mensagem.attach(MIMEText(corpo, "plain"))
 
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(EMAIL_ORIGEM, SENHA_APP)
-        server.send_message(mensagem)
-        server.quit()
+        # Conexão SSL criptografada direta (evita encerramento inesperado de conexão na porta 587)
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(EMAIL_ORIGEM, SENHA_APP.replace(" ", ""))
+            server.send_message(mensagem)
+            
         print(f"[+] Alerta enviado com sucesso para {EMAIL_DESTINO}")
     except Exception as e:
         print(f"[!] Erro ao enviar e-mail: {e}")
@@ -142,11 +143,10 @@ def buscar_itens():
         )
         time.sleep(10)
 
-        # Mapeia todos os links de edital disponíveis na tabela/página principal
+        # Mapeia todos os links de editais disponíveis
         links_editais = driver.find_elements(By.XPATH, "//a[contains(@href, 'edital') or contains(@href, 'lote') or contains(text(), 'Edital') or contains(text(), 'EDITAL')]")
         
         if not links_editais:
-            # Fallback para capturar qualquer link ou botão de edital visível
             links_editais = driver.find_elements(By.TAG_NAME, "a")
 
         urls_ou_elementos = []
@@ -156,7 +156,7 @@ def buscar_itens():
             if href and "javascript" not in href:
                 urls_ou_elementos.append((texto, href, el))
 
-        # Remove duplicatas baseadas no link de destino
+        # Remove duplicatas
         urls_unicas = list({href: (texto, href, el) for texto, href, el in urls_ou_elementos}.values())
 
         print(f"[+] Total de editais abertos localizados: {len(urls_unicas)}")
