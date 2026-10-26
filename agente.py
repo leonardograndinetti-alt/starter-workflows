@@ -5,7 +5,11 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from bs4 import BeautifulSoup
-import undetected_chromedriver as uc
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ==============================================================================
@@ -23,20 +27,35 @@ PALAVRAS_CHAVE = [
 URL_EDITAIS = "https://www25.receita.fazenda.gov.br/sle-sociedade/portal/editais-disponiveis"
 
 # ==============================================================================
-# INICIALIZAÇÃO DO DRIVER COM UN DETECTED-CHROMEDRIVER + WEBDRIVER-MANAGER
+# INICIALIZAÇÃO DO NAVEGADOR
 # ==============================================================================
 def inicializar_driver():
-    options = uc.ChromeOptions()
+    options = webdriver.ChromeOptions()
+    # Usar modo Headless Moderno
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
-    # O ChromeDriverManager baixa e alinha o binário do ChromeDriver na versão exata do Chrome instalado
-    driver_path = ChromeDriverManager().install()
-    print(f"[-] ChromeDriver alinhado via webdriver-manager em: {driver_path}")
+    # Burlar detecção padrão de automação
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
     
-    driver = uc.Chrome(options=options, driver_executable_path=driver_path)
+    # Ocultar o atributo navigator.webdriver via CDP (Chrome DevTools Protocol)
+    driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+        'source': '''
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            })
+        '''
+    })
+    
     return driver
 
 def contem_palavras_chave(texto):
@@ -48,7 +67,7 @@ def contem_palavras_chave(texto):
 # ==============================================================================
 def enviar_email_alerta(itens_encontrados):
     if not (EMAIL_ORIGEM and SENHA_APP and EMAIL_DESTINO):
-        print("[!] ATENÇÃO: Variáveis de e-mail não configuradas no ambiente. Notificação não enviada.")
+        print("[!] ATENÇÃO: Variáveis de e-mail não configuradas. Notificação não enviada.")
         return
 
     try:
@@ -57,7 +76,7 @@ def enviar_email_alerta(itens_encontrados):
         mensagem["To"] = EMAIL_DESTINO
         mensagem["Subject"] = f"Alerta Leilão RF: {len(itens_encontrados)} lote(s) encontrado(s)"
 
-        corpo = f"Foram encontrados {len(itens_encontrados)} lote(s)/item(ns) de interesse no portal da Receita Federal:\n\n"
+        corpo = f"Foram encontrados {len(itens_encontrados)} lote(s)/item(ns) de interesse na Receita Federal:\n\n"
         for idx, item in enumerate(itens_encontrados, 1):
             corpo += f"--- Lote/Item {idx} ---\n{item}\n\n"
         
@@ -77,22 +96,32 @@ def enviar_email_alerta(itens_encontrados):
 # EXECUÇÃO DO SCRAPING
 # ==============================================================================
 def buscar_itens():
-    print(f"[-] Acessando portal com undetected-chromedriver: {URL_EDITAIS}")
+    print(f"[-] Acessando o portal da Receita Federal: {URL_EDITAIS}")
     driver = inicializar_driver()
 
     try:
         driver.get(URL_EDITAIS)
-        # Aguarda a renderização das requisições assíncronas (Angular/SPA)
-        time.sleep(12)
+        
+        # Aguarda a página carregar o elemento body
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+        time.sleep(10)
 
         soup = BeautifulSoup(driver.page_source, 'html.parser')
-        cards = soup.find_all(['div', 'tr', 'li'], class_=re.compile(r'(card|item|linha|row)', re.I))
+        
+        # Faz uma busca ampla em blocos e tabelas
+        elementos = soup.find_all(['div', 'tr', 'li', 'article'])
         
         lotes_relevantes = []
-        for card in cards:
-            texto = card.get_text(separator=" ", strip=True)
-            if contem_palavras_chave(texto) and texto not in lotes_relevantes:
-                lotes_relevantes.append(texto)
+        elementos_vistos = set()
+
+        for el in elementos:
+            texto = el.get_text(separator=" ", strip=True)
+            if 20 < len(texto) < 1000 and texto not in elementos_vistos:
+                if contem_palavras_chave(texto):
+                    lotes_relevantes.append(texto)
+                    elementos_vistos.add(texto)
 
         print(f"[+] Total de lotes/itens encontrados: {len(lotes_relevantes)}")
 
