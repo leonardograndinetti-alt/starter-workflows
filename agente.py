@@ -69,47 +69,55 @@ def contem_palavras_chave(texto):
     return any(re.search(p, texto_lower) for p in PALAVRAS_CHAVE)
 
 # ==============================================================================
-# ENVIO DE E-MAIL DE ALERTA (USANDO SMTP_SSL COM CONTEXTO PERSONALIZADO)
+# ENVIO DE E-MAIL DE ALERTA (SMTP STARTTLS NA PORTA 587 COM REENTREGA)
 # ==============================================================================
 def enviar_email_alerta(achados):
     if not (EMAIL_ORIGEM and SENHA_APP and EMAIL_DESTINO):
         print("[!] ATENÇÃO: Variáveis EMAIL_ORIGEM, SENHA_APP ou EMAIL_DESTINO não configuradas no ambiente.")
         return
 
-    try:
-        mensagem = MIMEMultipart()
-        mensagem["From"] = EMAIL_ORIGEM.strip()
-        mensagem["To"] = EMAIL_DESTINO.strip()
-        
-        total_lotes = sum(len(lotes) for lotes in achados.values())
-        mensagem["Subject"] = f"Alerta Leilão RF (Informática): {total_lotes} lote(s) encontrado(s)"
+    mensagem = MIMEMultipart()
+    mensagem["From"] = EMAIL_ORIGEM.strip()
+    mensagem["To"] = EMAIL_DESTINO.strip()
+    
+    total_lotes = sum(len(lotes) for lotes in achados.values())
+    mensagem["Subject"] = f"Alerta Leilão RF (Informática): {total_lotes} lote(s) encontrado(s)"
 
-        corpo = f"Foram encontrados {total_lotes} lote(s) com itens de informática/eletrônicos nos editais abertos:\n\n"
-        
-        for edital, lotes in achados.items():
-            corpo += f"=========================================\n"
-            corpo += f"EDITAL: {edital}\n"
-            corpo += f"=========================================\n"
-            for idx, lote in enumerate(lotes, 1):
-                corpo += f"  Lote {idx}:\n  {lote}\n\n"
-        
-        corpo += f"\nAcesse o portal diretamente em: {URL_EDITAIS}"
-        mensagem.attach(MIMEText(corpo, "plain"))
+    corpo = f"Foram encontrados {total_lotes} lote(s) com itens de informática/eletrônicos nos editais abertos:\n\n"
+    
+    for edital, lotes in achados.items():
+        corpo += f"=========================================\n"
+        corpo += f"EDITAL: {edital}\n"
+        corpo += f"=========================================\n"
+        for idx, lote in enumerate(lotes, 1):
+            corpo += f"  Lote {idx}:\n  {lote}\n\n"
+    
+    corpo += f"\nAcesse o portal diretamente em: {URL_EDITAIS}"
+    mensagem.attach(MIMEText(corpo, "plain"))
 
-        # Sanitiza a senha de app removendo espaços acidentais
-        senha_limpa = str(SENHA_APP).strip().replace(" ", "")
+    # Sanitização da senha
+    senha_limpa = str(SENHA_APP).strip().replace(" ", "")
+    contexto_ssl = ssl.create_default_context()
 
-        # Contexto SSL moderno para compatibilidade no Ubuntu 24.04 / GitHub Actions
-        contexto_ssl = ssl.create_default_context()
-
-        print(f"[-] Conectando ao servidor SMTP do Gmail (smtp.gmail.com:465)...")
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=contexto_ssl, timeout=30) as server:
-            server.login(EMAIL_ORIGEM.strip(), senha_limpa)
-            server.send_message(mensagem)
-            
-        print(f"[+] Alerta enviado com sucesso para {EMAIL_DESTINO}")
-    except Exception as e:
-        print(f"[!] Erro ao enviar e-mail: {e}")
+    max_tentativas = 3
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            print(f"[-] Conectando ao SMTP do Gmail via STARTTLS (smtp.gmail.com:587) [Tentativa {tentativa}/{max_tentativas}]...")
+            with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
+                server.ehlo()
+                server.starttls(context=contexto_ssl)
+                server.ehlo()
+                server.login(EMAIL_ORIGEM.strip(), senha_limpa)
+                server.send_message(mensagem)
+                
+            print(f"[+] Alerta enviado com sucesso para {EMAIL_DESTINO}")
+            break
+        except Exception as e:
+            print(f"[!] Tentativa {tentativa} falhou: {e}")
+            if tentativa < max_tentativas:
+                time.sleep(3)
+            else:
+                print(f"[!] Erro definitivo ao enviar e-mail após {max_tentativas} tentativas.")
 
 # ==============================================================================
 # PROCESSAMENTO DE LOTES DENTRO DE UM EDITAL
