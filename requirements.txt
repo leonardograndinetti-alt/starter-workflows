@@ -1,4 +1,3 @@
-selenium
-beautifulsoup4
-webdriver-manager
 undetected-chromedriver
+webdriver-manager
+beautifulsoup4
