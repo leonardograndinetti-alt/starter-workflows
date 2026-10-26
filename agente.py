@@ -1,6 +1,7 @@
 import os
 import time
 import re
+import ssl
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -44,7 +45,7 @@ def inicializar_driver():
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
-    # Burlar detecção padrão de bot
+    # Burlar detecção padrão de bot no Selenium
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
@@ -68,17 +69,17 @@ def contem_palavras_chave(texto):
     return any(re.search(p, texto_lower) for p in PALAVRAS_CHAVE)
 
 # ==============================================================================
-# ENVIO DE E-MAIL DE ALERTA (USANDO SMTP_SSL NA PORTA 465)
+# ENVIO DE E-MAIL DE ALERTA (USANDO SMTP_SSL COM CONTEXTO PERSONALIZADO)
 # ==============================================================================
 def enviar_email_alerta(achados):
     if not (EMAIL_ORIGEM and SENHA_APP and EMAIL_DESTINO):
-        print("[!] ATENÇÃO: Variáveis EMAIL_ORIGEM, SENHA_APP ou EMAIL_DESTINO não configuradas.")
+        print("[!] ATENÇÃO: Variáveis EMAIL_ORIGEM, SENHA_APP ou EMAIL_DESTINO não configuradas no ambiente.")
         return
 
     try:
         mensagem = MIMEMultipart()
-        mensagem["From"] = EMAIL_ORIGEM
-        mensagem["To"] = EMAIL_DESTINO
+        mensagem["From"] = EMAIL_ORIGEM.strip()
+        mensagem["To"] = EMAIL_DESTINO.strip()
         
         total_lotes = sum(len(lotes) for lotes in achados.values())
         mensagem["Subject"] = f"Alerta Leilão RF (Informática): {total_lotes} lote(s) encontrado(s)"
@@ -95,9 +96,15 @@ def enviar_email_alerta(achados):
         corpo += f"\nAcesse o portal diretamente em: {URL_EDITAIS}"
         mensagem.attach(MIMEText(corpo, "plain"))
 
-        # Conexão SSL criptografada direta (evita encerramento inesperado de conexão na porta 587)
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(EMAIL_ORIGEM, SENHA_APP.replace(" ", ""))
+        # Sanitiza a senha de app removendo espaços acidentais
+        senha_limpa = str(SENHA_APP).strip().replace(" ", "")
+
+        # Contexto SSL moderno para compatibilidade no Ubuntu 24.04 / GitHub Actions
+        contexto_ssl = ssl.create_default_context()
+
+        print(f"[-] Conectando ao servidor SMTP do Gmail (smtp.gmail.com:465)...")
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=contexto_ssl, timeout=30) as server:
+            server.login(EMAIL_ORIGEM.strip(), senha_limpa)
             server.send_message(mensagem)
             
         print(f"[+] Alerta enviado com sucesso para {EMAIL_DESTINO}")
@@ -156,7 +163,7 @@ def buscar_itens():
             if href and "javascript" not in href:
                 urls_ou_elementos.append((texto, href, el))
 
-        # Remove duplicatas
+        # Remove links duplicados
         urls_unicas = list({href: (texto, href, el) for texto, href, el in urls_ou_elementos}.values())
 
         print(f"[+] Total de editais abertos localizados: {len(urls_unicas)}")
@@ -193,5 +200,4 @@ def buscar_itens():
     finally:
         driver.quit()
 
-if __name__ == "__main__":
-    buscar_itens()
+if __name
