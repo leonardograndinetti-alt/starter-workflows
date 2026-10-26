@@ -69,7 +69,7 @@ def contem_palavras_chave(texto):
     return any(re.search(p, texto_lower) for p in PALAVRAS_CHAVE)
 
 # ==============================================================================
-# ENVIO DE E-MAIL DE ALERTA (SMTP STARTTLS NA PORTA 587 COM REENTREGA)
+# ENVIO DE E-MAIL DE ALERTA (COM DEBUG DE SOCKET E STARTTLS)
 # ==============================================================================
 def enviar_email_alerta(achados):
     if not (EMAIL_ORIGEM and SENHA_APP and EMAIL_DESTINO):
@@ -95,27 +95,32 @@ def enviar_email_alerta(achados):
     corpo += f"\nAcesse o portal diretamente em: {URL_EDITAIS}"
     mensagem.attach(MIMEText(corpo, "plain"))
 
-    # Sanitização da senha
     senha_limpa = str(SENHA_APP).strip().replace(" ", "")
+
     contexto_ssl = ssl.create_default_context()
+    contexto_ssl.check_hostname = True
+    contexto_ssl.verify_mode = ssl.CERT_REQUIRED
 
     max_tentativas = 3
     for tentativa in range(1, max_tentativas + 1):
         try:
-            print(f"[-] Conectando ao SMTP do Gmail via STARTTLS (smtp.gmail.com:587) [Tentativa {tentativa}/{max_tentativas}]...")
-            with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
-                server.ehlo()
-                server.starttls(context=contexto_ssl)
-                server.ehlo()
-                server.login(EMAIL_ORIGEM.strip(), senha_limpa)
-                server.send_message(mensagem)
+            print(f"[-] Conectando ao SMTP do Gmail (smtp.gmail.com:587) [Tentativa {tentativa}/{max_tentativas}]...")
+            
+            server = smtplib.SMTP("smtp.gmail.com", 587, timeout=20)
+            server.set_debuglevel(1)  # Exibe os comandos SMTP detalhados no log
+            server.ehlo()
+            server.starttls(context=contexto_ssl)
+            server.ehlo()
+            server.login(EMAIL_ORIGEM.strip(), senha_limpa)
+            server.send_message(mensagem)
+            server.quit()
                 
             print(f"[+] Alerta enviado com sucesso para {EMAIL_DESTINO}")
             break
         except Exception as e:
             print(f"[!] Tentativa {tentativa} falhou: {e}")
             if tentativa < max_tentativas:
-                time.sleep(3)
+                time.sleep(5)
             else:
                 print(f"[!] Erro definitivo ao enviar e-mail após {max_tentativas} tentativas.")
 
