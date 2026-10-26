@@ -7,6 +7,9 @@ from email.mime.multipart import MIMEMultipart
 from bs4 import BeautifulSoup
 import undetected_chromedriver as uc
 
+# ==============================================================================
+# CONFIGURAÇÕES E VARIÁVEIS DE AMBIENTE
+# ==============================================================================
 EMAIL_ORIGEM = os.getenv("EMAIL_ORIGEM")
 SENHA_APP = os.getenv("SENHA_APP")
 EMAIL_DESTINO = os.getenv("EMAIL_DESTINO")
@@ -18,25 +21,30 @@ PALAVRAS_CHAVE = [
 
 URL_EDITAIS = "https://www25.receita.fazenda.gov.br/sle-sociedade/portal/editais-disponiveis"
 
+# ==============================================================================
+# INICIALIZAÇÃO DO NAVEGADOR
+# ==============================================================================
 def inicializar_driver():
     options = uc.ChromeOptions()
-    # No undetected-chromedriver, use headless=True nativo do UC para evitar detecção
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
     
-    # Inicializa o Chrome sem o webdriver-manager (o UC gerencia o driver automaticamente)
-    driver = uc.Chrome(options=options, version_main=122)
+    # Ao omitir 'version_main', a biblioteca detecta automaticamente a versão do Chrome instalada
+    driver = uc.Chrome(options=options)
     return driver
 
 def contem_palavras_chave(texto):
     texto_lower = texto.lower()
     return any(re.search(p, texto_lower) for p in PALAVRAS_CHAVE)
 
+# ==============================================================================
+# ENVIO DE E-MAIL
+# ==============================================================================
 def enviar_email_alerta(itens_encontrados):
     if not (EMAIL_ORIGEM and SENHA_APP and EMAIL_DESTINO):
-        print("[!] Váriaveis de e-mail ausentes. Pulando envio.")
+        print("[!] ATENÇÃO: Variáveis de e-mail ausentes. Notificação não enviada.")
         return
 
     try:
@@ -45,11 +53,11 @@ def enviar_email_alerta(itens_encontrados):
         mensagem["To"] = EMAIL_DESTINO
         mensagem["Subject"] = f"Alerta Leilão RF: {len(itens_encontrados)} lote(s) encontrado(s)"
 
-        corpo = f"Foram encontrados {len(itens_encontrados)} lote(s)/item(ns):\n\n"
+        corpo = f"Foram encontrados {len(itens_encontrados)} lote(s)/item(ns) de interesse no portal da Receita Federal:\n\n"
         for idx, item in enumerate(itens_encontrados, 1):
             corpo += f"--- Lote/Item {idx} ---\n{item}\n\n"
-        corpo += f"\nAcesse o portal: {URL_EDITAIS}"
         
+        corpo += f"\nAcesse o portal diretamente em: {URL_EDITAIS}"
         mensagem.attach(MIMEText(corpo, "plain"))
 
         server = smtplib.SMTP("smtp.gmail.com", 587)
@@ -57,17 +65,20 @@ def enviar_email_alerta(itens_encontrados):
         server.login(EMAIL_ORIGEM, SENHA_APP)
         server.send_message(mensagem)
         server.quit()
-        print(f"[+] Alerta enviado para {EMAIL_DESTINO}")
+        print(f"[+] Alerta de e-mail enviado com sucesso para {EMAIL_DESTINO}")
     except Exception as e:
         print(f"[!] Erro ao enviar e-mail: {e}")
 
+# ==============================================================================
+# EXECUÇÃO DO SCRAPING
+# ==============================================================================
 def buscar_itens():
-    print(f"[-] Acessando portal com undetected-chromedriver: {URL_EDITAIS}")
+    print(f"[-] Acessando o portal com undetected-chromedriver: {URL_EDITAIS}")
     driver = inicializar_driver()
 
     try:
         driver.get(URL_EDITAIS)
-        # Aguarda a renderização de elementos via JS/AJAX
+        # Pausa para permitir que as requisições assíncronas do portal carreguem os dados
         time.sleep(12)
 
         soup = BeautifulSoup(driver.page_source, 'html.parser')
@@ -79,15 +90,17 @@ def buscar_itens():
             if contem_palavras_chave(texto) and texto not in lotes_relevantes:
                 lotes_relevantes.append(texto)
 
-        print(f"[+] Total de lotes encontrados: {len(lotes_relevantes)}")
+        print(f"[+] Total de lotes/itens encontrados: {len(lotes_relevantes)}")
 
         if lotes_relevantes:
+            for idx, item in enumerate(lotes_relevantes, 1):
+                print(f"\n[Item {idx}]: {item[:150]}...")
             enviar_email_alerta(lotes_relevantes)
         else:
-            print("[-] Nenhum item de interesse localizado nesta execução.")
+            print("[-] Nenhum lote contendo celulares ou TVs foi localizado nesta execução.")
 
     except Exception as e:
-        print(f"[!] Erro durante a execução: {e}")
+        print(f"[!] Erro durante o scraping: {e}")
         raise e
     finally:
         driver.quit()
