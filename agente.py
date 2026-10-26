@@ -19,9 +19,16 @@ EMAIL_ORIGEM = os.getenv("EMAIL_ORIGEM")
 SENHA_APP = os.getenv("SENHA_APP")
 EMAIL_DESTINO = os.getenv("EMAIL_DESTINO")
 
+# Palavras-chave expandidas para itens de informática e eletrônicos
 PALAVRAS_CHAVE = [
     r'\bcelular\b', r'\bsmartphone\b', r'\biphone\b', r'\bsamsung\b', r'\bxiaomi\b',
-    r'\btv\b', r'\btelevisao\b', r'\btelevisor\b', r'\bsmart tv\b'
+    r'\btv\b', r'\btelevisao\b', r'\btelevisor\b', r'\bsmart tv\b',
+    r'\bnotebook\b', r'\blaptop\b', r'\bmacbook\b', r'\bcomputador\b', r'\bpc\b',
+    r'\btablet\b', r'\bipad\b', r'\bmonitor\b', r'\bplaca de video\b', r'\bgpu\b',
+    r'\brtx\b', r'\bgtx\b', r'\brazen\b', r'\bryzen\b', r'\bintel\b',
+    r'\bprocessador\b', r'\bmemoria ram\b', r'\bssd\b', r'\bhd externo\b',
+    r'\bplaystation\b', r'\bps4\b', r'\bps5\b', r'\bxbox\b', r'\bnintendo\b',
+    r'\broteador\b', r'\bperifericos\b', r'\bheadset\b', r'\bteclado\b', r'\bmouse\b'
 ]
 
 URL_EDITAIS = "https://www25.receita.fazenda.gov.br/sle-sociedade/portal/editais-disponiveis"
@@ -73,9 +80,9 @@ def enviar_email_alerta(achados):
         mensagem["To"] = EMAIL_DESTINO
         
         total_lotes = sum(len(lotes) for lotes in achados.values())
-        mensagem["Subject"] = f"Alerta Leilão RF (Galeão): {total_lotes} lote(s) com celular/TV"
+        mensagem["Subject"] = f"Alerta Leilão RF (Informática): {total_lotes} lote(s) encontrado(s)"
 
-        corpo = f"Foram encontrados {total_lotes} lote(s) com itens de interesse nos editais do Galeão:\n\n"
+        corpo = f"Foram encontrados {total_lotes} lote(s) com itens de informática/eletrônicos nos editais abertos:\n\n"
         
         for edital, lotes in achados.items():
             corpo += f"=========================================\n"
@@ -97,13 +104,12 @@ def enviar_email_alerta(achados):
         print(f"[!] Erro ao enviar e-mail: {e}")
 
 # ==============================================================================
-# PROCESSAMENTO DE LOTES DENTRO DO EDITAL
+# PROCESSAMENTO DE LOTES DENTRO DE UM EDITAL
 # ==============================================================================
 def extrair_lotes_do_edital(driver, nome_edital):
-    time.sleep(8)  # Tempo de renderização do Angular
+    time.sleep(8)
     soup = BeautifulSoup(driver.page_source, 'html.parser')
     
-    # Mapeia blocos que representam lotes (cards, linhas de tabela ou divs com conteúdo)
     blocos = soup.find_all(['tr', 'div', 'article'], class_=re.compile(r'(lote|card|item|linha|row)', re.I))
     if not blocos:
         blocos = soup.find_all(['div', 'section'])
@@ -113,20 +119,19 @@ def extrair_lotes_do_edital(driver, nome_edital):
 
     for bloco in blocos:
         texto = bloco.get_text(separator=" ", strip=True)
-        # Filtra fragmentos irrelevantes e duplicados
         if 30 < len(texto) < 1200 and texto not in textos_vistos:
             if contem_palavras_chave(texto):
                 lotes_encontrados.append(texto)
                 textos_vistos.add(texto)
 
-    print(f"  [->] Edital '{nome_edital}': {len(lotes_encontrados)} lote(s) contendo celular/TV.")
+    print(f"  [->] Edital '{nome_edital}': {len(lotes_encontrados)} lote(s) de informática localizados.")
     return lotes_encontrados
 
 # ==============================================================================
 # EXECUÇÃO DO SCRAPING
 # ==============================================================================
 def buscar_itens():
-    print(f"[-] Acessando o portal da Receita Federal: {URL_EDITAIS}")
+    print(f"[-] Acessando o portal de editais da Receita Federal: {URL_EDITAIS}")
     driver = inicializar_driver()
     achados_por_edital = {}
 
@@ -137,38 +142,36 @@ def buscar_itens():
         )
         time.sleep(10)
 
-        # Localiza todos os links ou botões de edital associados a 'Galeão'
-        elementos_edital = driver.find_elements(By.XPATH, "//*[contains(translate(text(), 'GALEÃO', 'galeão'), 'galeão') or contains(translate(@aria-label, 'GALEÃO', 'galeão'), 'galeão')]/ancestor-or-self::a | //*[contains(translate(text(), 'GALEÃO', 'galeão'), 'galeão')]/ancestor-or-self::button")
+        # Mapeia todos os links de edital disponíveis na tabela/página principal
+        links_editais = driver.find_elements(By.XPATH, "//a[contains(@href, 'edital') or contains(@href, 'lote') or contains(text(), 'Edital') or contains(text(), 'EDITAL')]")
         
-        if not elementos_edital:
-            # Busca genérica por elementos contendo a palavra Galeão
-            elementos_edital = [el for el in driver.find_elements(By.TAG_NAME, "a") if "galeão" in el.text.lower()]
+        if not links_editais:
+            # Fallback para capturar qualquer link ou botão de edital visível
+            links_editais = driver.find_elements(By.TAG_NAME, "a")
 
-        urls_ou_titulos = []
-        for el in elementos_edital:
+        urls_ou_elementos = []
+        for el in links_editais:
             href = el.get_attribute("href")
-            texto = el.text.strip() or "Edital Galeão"
-            urls_ou_titulos.append((texto, href, el))
+            texto = el.text.strip() or "Edital Sem Nome"
+            if href and "javascript" not in href:
+                urls_ou_elementos.append((texto, href, el))
 
-        print(f"[+] Total de editais do Galeão localizados: {len(urls_ou_titulos)}")
+        # Remove duplicatas baseadas no link de destino
+        urls_unicas = list({href: (texto, href, el) for texto, href, el in urls_ou_elementos}.values())
 
-        if not urls_ou_titulos:
-            print("[-] Nenhum edital referente ao Galeão foi encontrado nesta verificação.")
+        print(f"[+] Total de editais abertos localizados: {len(urls_unicas)}")
+
+        if not urls_unicas:
+            print("[-] Nenhum edital foi localizado na página principal.")
             return
 
-        # Guarda a URL inicial da lista para retornar após inspecionar cada edital
         url_lista = driver.current_url
 
-        for idx, (nome, href, elemento) in enumerate(urls_ou_titulos, 1):
-            print(f"\n[-] Inspecionando edital {idx}/{len(urls_ou_titulos)}: {nome}")
+        for idx, (nome, href, elemento) in enumerate(urls_unicas, 1):
+            print(f"\n[-] Inspecionando edital {idx}/{len(urls_unicas)}: {nome[:60]}")
             
             try:
-                if href and href.startswith("http"):
-                    driver.get(href)
-                else:
-                    # Clique via JavaScript caso seja uma SPA sem href direto
-                    driver.execute_script("arguments[0].click();", elemento)
-                
+                driver.get(href)
                 lotes = extrair_lotes_do_edital(driver, nome)
                 if lotes:
                     achados_por_edital[nome] = lotes
@@ -176,14 +179,13 @@ def buscar_itens():
             except Exception as err_edital:
                 print(f"[!] Erro ao processar o edital '{nome}': {err_edital}")
             
-            # Retorna para a lista principal para abrir o próximo edital
             driver.get(url_lista)
             time.sleep(5)
 
         if achados_por_edital:
             enviar_email_alerta(achados_por_edital)
         else:
-            print("\n[-] Nenhum lote com celulares ou TVs foi encontrado nos editais do Galeão.")
+            print("\n[-] Nenhum lote com itens de informática foi localizado nos editais abertos.")
 
     except Exception as e:
         print(f"[!] Erro durante a execução do agente: {e}")
