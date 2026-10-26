@@ -2,17 +2,18 @@ name: Monitoramento Semanal Leilões RF
 
 on:
   schedule:
+    # Executa todo sábado às 09:00 UTC (06:00 no Horário de Brasília)
     - cron: '0 9 * * 6'
-  workflow_dispatch:
+  workflow_dispatch: # Permite disparar manualmente o teste na aba Actions do GitHub
 
 jobs:
   run-agent:
-    # Fixa a versão da imagem para evitar quebras por atualizações automáticas do runner
+    # Fixa o runner na versão estável do Ubuntu 24.04
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout do código
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Configurar Python
         uses: actions/setup-python@v5
