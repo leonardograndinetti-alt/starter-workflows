@@ -200,4 +200,5 @@ def buscar_itens():
     finally:
         driver.quit()
 
-if __name
+if __name__ == "__main__":
+    buscar_itens()
