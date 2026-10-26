@@ -4,11 +4,11 @@ on:
   schedule:
     # Executa todo sábado às 09:00 UTC (06:00 no Horário de Brasília)
     - cron: '0 9 * * 6'
-  workflow_dispatch: # Permite disparar manualmente o teste na aba Actions do GitHub
+  workflow_dispatch: # Permite disparar o teste manualmente na aba Actions do GitHub
 
 jobs:
   run-agent:
-    # Fixa o runner na versão estável do Ubuntu 24.04
+    # Fixa o runner no Ubuntu 24.04 para estabilidade do ambiente
     runs-on: ubuntu-24.04
 
     steps:
